@@ -1,0 +1,42 @@
+services:
+  # Serviço do Banco de Dados PostgreSQL
+  db:
+    image: postgres:15-alpine
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+    networks:
+      - fozdocs_network
+
+  # Serviço da Nossa API (FastAPI)
+  api:
+    build:
+      context: .
+      args:
+        HTTP_PROXY: ${HTTP_PROXY}
+        HTTPS_PROXY: ${HTTPS_PROXY}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/code  # Sincroniza o código local com o container (Hot Reload)
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+    networks:
+      - fozdocs_network
+    # Configuração especial para Linux acessar o host (onde está o MinIO)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  postgres_data:  # Persistência de dados do banco
+
+networks:
+  fozdocs_network:
+    driver: bridge
