@@ -9,14 +9,14 @@ import time
 class AIProcessor:
     def __init__(self):
         genai.configure(api_key=settings.GOOGLE_API_KEY)
-        # Usando 'gemini-1.5-pro' (Nome padrão estável)
-        self.model = genai.GenerativeModel('gemini-1.5-pro')
+        # Usando 'gemini-2.5-pro' (Disponível em Dez/2025)
+        self.model = genai.GenerativeModel('gemini-2.5-pro')
 
-    async def analyze_video(self, video_path_minio: str) -> dict:
+    async def analyze_video(self, video_path_minio: str, system_context: str = "", module_context: str = "", user_goal: str = "") -> dict:
         """
         1. Baixa vídeo do MinIO
         2. Upload pro Google
-        3. Analisa com Prompt
+        3. Analisa com Prompt Contextualizado
         4. Retorna JSON
         """
         temp_file = f"/tmp/{video_path_minio.split('/')[-1]}"
@@ -24,11 +24,39 @@ class AIProcessor:
         try:
             # 1. Download
             print(f"Baixando vídeo: {video_path_minio}")
-            storage.download_file(video_path_minio, temp_file)
+            try:
+                storage.download_file(video_path_minio, temp_file)
+            except Exception as e:
+                # Se falhar o download, não adianta continuar
+                print(f"Erro no download do MinIO: {e}")
+                raise e
             
-            # 2. Upload to Gemini
-            print("Enviando para o Google...")
-            video_file = genai.upload_file(path=temp_file)
+            # 2. Otimização: Converter para 1 FPS (Reduz tamanho e custo)
+            print("Otimizando vídeo (1 FPS)...")
+            optimized_file = temp_file.replace(".webm", "_opt.mp4").replace(".mp4", "_opt.mp4")
+            
+            import subprocess
+            # ffmpeg -i input -r 1 output
+            # -y (overwrite), -r 1 (1 frame per sec)
+            cmd = [
+                "ffmpeg", "-y", 
+                "-i", temp_file, 
+                "-r", "1", 
+                optimized_file
+            ]
+            
+            process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if process.returncode != 0:
+                print(f"Erro no FFmpeg: {process.stderr.decode()}")
+                # Fallback: Se falhar, usa o arquivo original mesmo
+                final_file_path = temp_file
+            else:
+                print("Vídeo otimizado com sucesso.")
+                final_file_path = optimized_file
+
+            # 3. Upload to Gemini
+            print(f"Enviando para o Google ({final_file_path})...")
+            video_file = genai.upload_file(path=final_file_path)
             print(f"Upload concluído: {video_file.uri}")
             
             # Aguarda processamento do vídeo no lado do Google
@@ -40,32 +68,50 @@ class AIProcessor:
             if video_file.state.name == "FAILED":
                 raise ValueError("Falha no processamento do vídeo pelo Google.")
 
-            # 3. Prompt
-            prompt = """
-            Você é um redator técnico especialista em criar manuais de software.
-            Analise este vídeo de uma tela de computador.
-            Identifique cada ação realizada pelo usuário (cliques, digitação, navegação).
+            # 3. Engenharia de Prompt com Contexto
+            prompt = f"""
+            Role: Tech Writer Specialist (Senior).
+            Context Hierarchy:
+            - System Identity: {system_context}
+            - Module Context: {module_context}
             
-            Retorne APENAS um JSON estritamente válido com a seguinte estrutura:
-            {
-                "title": "Título sugerido para o manual",
+            User Goal (The Manual Title): "{user_goal}"
+            
+            Task:
+            Analyze the provided screen recording video. The user is demonstrating how to achieve the "User Goal".
+            Create a step-by-step manual.
+            
+            Guidelines:
+            - Use the System and Module context to identify specific UI elements (e.g., if context says "Blue Header", look for it).
+            - Ignore "Alt+Tab" or system switching unless necessary.
+            - Be concise but descriptive.
+            
+            Output Format (Strict JSON):
+            {{
+                "title": "{user_goal}",
                 "steps": [
-                    {
-                        "timestamp": "00:05",
-                        "description": "Descrição detalhada da ação. Ex: Clicou no botão 'Salvar'"
-                    }
+                    {{
+                        "timestamp": "MM:SS",
+                        "description": "Action description (e.g. Clicked on 'Save' button)."
+                    }}
                 ]
-            }
+            }}
             """
             
-            print("Solicitando análise...")
+            print("Solicitando análise com contexto...")
             response = self.model.generate_content(
                 [video_file, prompt],
                 generation_config={"response_mime_type": "application/json"}
             )
             
             print("Análise recebida.")
-            return json.loads(response.text)
+            try:
+                return json.loads(response.text)
+            except json.JSONDecodeError:
+                # Fallback simples se o JSON vier quebrado (markdown block etc)
+                print("JSON Inválido recebido, tentando limpar...")
+                clean_text = response.text.replace("```json", "").replace("```", "")
+                return json.loads(clean_text)
 
         except Exception as e:
             print(f"Erro na IA: {e}")
@@ -88,6 +134,10 @@ class AIProcessor:
             # Limpeza
             if os.path.exists(temp_file):
                 os.remove(temp_file)
+            # Remove arquivo otimizado também, se existir
+            opt_file = temp_file.replace(".webm", "_opt.mp4").replace(".mp4", "_opt.mp4")
+            if os.path.exists(opt_file):
+                os.remove(opt_file)
             # Todo: Deletar arquivo do Google (genai.delete_file(video_file.name))
 
 ai_processor = AIProcessor()

@@ -4,6 +4,12 @@ FROM python:3.11-slim
 # Define o diretório de trabalho dentro do container
 WORKDIR /code
 
+# Instala dependencias para proxy
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ENV http_proxy=${HTTP_PROXY}
+ENV https_proxy=${HTTPS_PROXY}
+
 # Variáveis de ambiente para evitar arquivos .pyc e logs em buffer
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -11,6 +17,7 @@ ENV PYTHONUNBUFFERED=1
 # Instala dependências do sistema necessárias para compilar pacotes (se necessário)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copia e instala as dependências do Python

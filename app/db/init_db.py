@@ -44,9 +44,24 @@ async def init_tables():
             db.add(Module(system_id=tributario.id, name="Nota Fiscal", context_prompt="Emissão de notas."))
             
             await db.commit()
-            print("Seed concluído!")
+            print("Sistemas/Módulos seedados!")
+        
+        # Seed Users
+        from app.models.user import User, UserRole
+        result_users = await db.execute(select(User).limit(1))
+        if not result_users.scalars().first():
+            print("Populando Users de Teste...")
+            users = [
+                User(email="admin@fozdocs.local", role=UserRole.ADMIN),
+                User(email="produtor@fozdocs.local", role=UserRole.PRODUCER),
+                User(email="leitor@fozdocs.local", role=UserRole.READER),
+            ]
+            db.add_all(users)
+            await db.commit()
+            print("Users criados: admin@, produtor@, leitor@")
         else:
-            print("Banco já populado.")
+            print("Users já existem.")
+
 
 if __name__ == "__main__":
     asyncio.run(init_tables())

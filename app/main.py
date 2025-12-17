@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import upload, system
+from app.routers import upload, system, chapter
 from app.db.init_db import init_tables
 
 @asynccontextmanager
@@ -22,8 +22,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(upload.router, prefix="/api/v1", tags=["Upload"])
-app.include_router(system.router, prefix="/api/v1", tags=["System"])
+# app.include_router(auth.router, prefix="/api/v1", tags=["auth"]) # Auth not implemented as router yet
+app.include_router(upload.router, prefix="/api/v1", tags=["upload"])
+app.include_router(system.router, prefix="/api/v1", tags=["systems"])
+app.include_router(chapter.router, prefix="/api/v1", tags=["chapters"])
 
 @app.get("/")
 def read_root():

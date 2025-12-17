@@ -1,0 +1,26 @@
+{
+    "name": "fozdocs-recorder",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "(cd .. && sudo docker-compose up -d) && vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "@emotion/react": "^11.11.3",
+        "@mantine/core": "^7.5.0",
+        "@mantine/hooks": "^7.5.0",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0"
+    },
+    "devDependencies": {
+        "@types/chrome": "^0.0.260",
+        "@types/react": "^18.2.55",
+        "@types/react-dom": "^18.2.19",
+        "@vitejs/plugin-react": "^4.2.1",
+        "typescript": "^5.2.2",
+        "vite": "^5.1.0"
+    }
+}

@@ -13,53 +13,7 @@ router = APIRouter()
 
 from app.services.tts import tts_service
 
-async def process_upload_background(chapter_id: int):
-    """
-    Função auxiliar que roda em background.
-    Cria uma nova sessão de banco, chama a IA, gera ÁUDIO e atualiza o capítulo.
-    """
-    # Cria uma nova sessão pois a original da request já fechou
-    async with AsyncSessionLocal() as db:
-        try:
-            print(f"[{chapter_id}] Iniciando processamento IA...")
-            
-            # 1. Buscar o capítulo
-            result = await db.execute(select(Chapter).where(Chapter.id == chapter_id))
-            chapter = result.scalars().first()
-            
-            if not chapter:
-                print(f"[{chapter_id}] Capítulo não encontrado!")
-                return
-
-            chapter.status = "PROCESSING"
-            await db.commit()
-
-            # 2. Chamar IA (Real ou Mock)
-            analyze_result = await ai_processor.analyze_video(chapter.video_url)
-            
-            # 3. Gerar Áudio (TTS) para cada passo
-            print(f"[{chapter_id}] Gerando áudio para {len(analyze_result.get('steps', []))} passos...")
-            
-            if "steps" in analyze_result:
-                for step in analyze_result["steps"]:
-                    description = step.get("description", "")
-                    if description:
-                        # Gera o MP3 e salva no MinIO
-                        audio_url = await tts_service.generate_audio(description)
-                        step["audio_url"] = audio_url
-            
-            # 4. Atualizar capítulo
-            # Agora salvamos o JSON enriquecido com as URLs de áudio
-            chapter.text_content = json.dumps(analyze_result, ensure_ascii=False, indent=2)
-            chapter.status = "DRAFT" # Pronto para revisão humana
-            
-            await db.commit()
-            print(f"[{chapter_id}] Processamento e TTS concluídos com sucesso!")
-
-        except Exception as e:
-            print(f"[{chapter_id}] Erro no processamento: {e}")
-            # Em caso de erro, voltar status ou marcar erro?
-            # Por hora, deixamos no log. Poderíamos ter status ERROR.
+from app.services.worker import process_video_job
 
 @router.post("/upload")
 async def upload_video(
@@ -110,7 +64,7 @@ async def upload_video(
         await db.refresh(new_chapter)
         
         # 6. Agendar Processamento IA
-        background_tasks.add_task(process_upload_background, new_chapter.id)
+        background_tasks.add_task(process_video_job, new_chapter.id, title)
         
         return {
             "status": "success",
@@ -126,34 +80,7 @@ async def upload_video(
 
 # ... imports mantidos ...
 
-@router.get("/chapters/{chapter_id}")
-async def get_chapter(chapter_id: int, db: AsyncSession = Depends(get_db)):
-    """
-    Retorna o status e o conteúdo (Passos + Áudio) de um capítulo.
-    Usado pelo Frontend para Polling.
-    """
-    result = await db.execute(select(Chapter).where(Chapter.id == chapter_id))
-    chapter = result.scalars().first()
-    
-    if not chapter:
-        raise HTTPException(status_code=404, detail="Capítulo não encontrado")
-    
-    # Se tiver text_content (JSON), parseia para retornar objeto bonito
-    content_parsed = None
-    if chapter.text_content:
-        try:
-            content_parsed = json.loads(chapter.text_content)
-        except:
-            content_parsed = chapter.text_content
-
-    return {
-        "id": chapter.id,
-        "title": chapter.title,
-        "status": chapter.status, # PENDING, PROCESSING, DRAFT
-        "video_url": chapter.video_url,
-        "content": content_parsed, # Aqui virá o JSON com os passos e URLs de áudio
-        "created_at": chapter.created_at
-    }
+# Endpoint moved to routers/chapter.py
 
 # Import necessário para a query provisória
 from sqlalchemy import select

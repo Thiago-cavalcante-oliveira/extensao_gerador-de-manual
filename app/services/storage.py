@@ -1,3 +1,4 @@
+from datetime import timedelta
 from minio import Minio
 from minio.error import S3Error
 from app.core.config import settings
@@ -64,6 +65,27 @@ class StorageService:
         except S3Error as e:
             print(f"Erro ao baixar do MinIO: {e}")
             raise e
+
+    def get_presigned_url(self, filename: str, expiration_seconds: int = 3600) -> str:
+        """Gera uma URL temporária assinada para visualização."""
+        try:
+            # Se o filename vier com o bucket (formato antigo/hardcoded), remove
+            # Ex: documentacao/arquivo.webm -> arquivo.webm
+            if "/" in filename:
+                filename = filename.split("/")[-1]
+
+            url = self.client.presigned_get_object(
+                self.bucket_name,
+                filename,
+                expires=timedelta(seconds=expiration_seconds)
+            )
+            
+            # Hack para desenvolvimento local (Docker -> Browser)
+            # O container vê 'minio' ou 'host.docker.internal', mas o browser quer 'localhost'
+            return url.replace("minio:9000", "localhost:9000").replace("host.docker.internal:9000", "localhost:9000")
+        except S3Error as e:
+            print(f"Erro ao gerar URL assinada: {e}")
+            return ""
 
 # Instância única
 storage = StorageService()
