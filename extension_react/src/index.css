@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom class for Privacy Blur */
+.fozdocs-blur {
+  filter: blur(4px);
+  user-select: none;
+  pointer-events: none;
+}

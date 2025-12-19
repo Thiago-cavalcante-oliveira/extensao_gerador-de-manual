@@ -9,7 +9,14 @@ export default defineConfig({
         rollupOptions: {
             input: {
                 popup: 'index.html',
+                content: 'src/content_script.tsx',
+                background: 'src/background.ts'
             },
+            output: {
+                entryFileNames: '[name].js',
+                chunkFileNames: '[name].js',
+                assetFileNames: '[name].[ext]'
+            }
         },
     },
 })

@@ -13,14 +13,33 @@
         "http://localhost:8000/*",
         "<all_urls>"
     ],
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
     "action": {
         "default_popup": "index.html",
         "default_title": "Abrir Gravador FozDocs"
     },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "css": [
+                "index.css"
+            ]
+        }
+    ],
     "web_accessible_resources": [
         {
             "resources": [
-                "assets/*"
+                "assets/*",
+                "index.css",
+                "*.js"
             ],
             "matches": [
                 "<all_urls>"
