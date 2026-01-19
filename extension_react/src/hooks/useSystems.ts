@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 
 interface System {
-    id: string;
+    id: number;
     name: string;
 }
 
 interface Module {
-    id: string;
-    system_id: string;
+    id: number;
+    system_id: number;
     name: string;
 }
 
@@ -25,23 +25,21 @@ export function useSystems() {
                 const sysData = await sysRes.json();
                 setSystems(sysData);
 
-                // Fetch modules (assuming endpoint exists, or we filter later)
-                // For MVP, we might just load all modules or filter by selected system
-                const modRes = await fetch('http://localhost:8000/api/v1/systems/modules/all'); // Adjust endpoint as needed
+                const modRes = await fetch('http://localhost:8000/api/v1/systems/modules/all');
                 if (modRes.ok) {
                     const modData = await modRes.json();
                     setModules(modData);
                 } else {
-                    // Fallback mock if endpoint missing
+                    // Fallback mock
                     setModules([
-                        { id: '1', system_id: '1', name: 'Triagem' },
-                        { id: '2', system_id: '1', name: 'Farmácia' }
+                        { id: 1, system_id: 1, name: 'Triagem' },
+                        { id: 2, system_id: 1, name: 'Farmácia' }
                     ]);
                 }
 
             } catch (err) {
                 console.error(err);
-                setError('Erro ao carregar dados. O backend está rodando?');
+                setError('Erro ao carregar dados. Backend offline?');
             } finally {
                 setLoading(false);
             }

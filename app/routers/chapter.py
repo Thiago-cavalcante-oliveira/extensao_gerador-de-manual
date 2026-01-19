@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -9,6 +9,120 @@ from pydantic import BaseModel
 from app.core.config import settings
 
 router = APIRouter()
+
+@router.post("/chapters/{chapter_id}/reprocess")
+async def reprocess_chapter(
+    chapter_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retriggers the AI analysis for an existing video.
+    Useful if the previous attempt failed due to API errors.
+    """
+    chapter = await db.get(Chapter, chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    # Reset status
+    chapter.status = "PENDING"
+    # Optional: Clear previous error content if you want
+    await db.commit()
+    
+    # Trigger Worker
+    from app.services.worker import process_video_job
+    background_tasks.add_task(process_video_job, chapter.id, "Criar um manual passo a passo detalhado.")
+    print(f"DEBUG: Reprocess triggering for {chapter_id}")
+    return {"message": "Reprocessing started", "status": "PENDING"}
+
+@router.post("/chapters/{chapter_id}/cancel")
+async def cancel_chapter(
+    chapter_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancels the AI processing by forcing status to FAILED (or DRAFT).
+    Does not stop the actual thread if running, but updates DB so UI stops polling.
+    """
+    chapter = await db.get(Chapter, chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    chapter.status = "FAILED"
+    # Optional: Update content to explain cancel
+    import json
+    chapter.text_content = json.dumps({"error": "Cancelled by user"})
+    
+    await db.commit()
+    return {"message": "Processing cancelled", "status": "FAILED"}
+
+from app.services.video_processor import video_processor
+from app.models.configuration import Configuration
+
+async def background_stitch_and_publish(chapter_id: int, db_session_factory):
+    # Create a new session for the background task
+    async with db_session_factory() as db:
+        chapter = await db.get(Chapter, chapter_id)
+        if not chapter: return
+        
+        # Get Config
+        config = await db.scalar(select(Configuration).limit(1))
+        intro = config.intro_video_url if config else None
+        outro = config.outro_video_url if config else None
+        
+        try:
+            # Stitch
+            if intro or outro:
+                print(f"Stitching chapter {chapter_id} with intro={intro}, outro={outro}")
+                final_url = await video_processor.stitch_videos(chapter.video_url, intro, outro)
+                chapter.stitched_video_url = final_url
+                chapter.video_url = final_url # Update main URL to pointed to stitched? Or keep raw?
+                # User asked: "inserido no vídeo automaticamente". 
+                # Let's update `video_url` to be the stitched one so the player plays the final version.
+                # But keep `stitched_video_url` just in case we want to revert/debug.
+            
+            chapter.status = "COMPLETED"
+            await db.commit()
+            print(f"Chapter {chapter_id} published successfully.")
+            
+        except Exception as e:
+            print(f"Stitching failed: {e}")
+            chapter.status = "FAILED" # Or revert to draft?
+            await db.commit()
+
+@router.post("/chapters/{chapter_id}/publish")
+async def publish_chapter(
+    chapter_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Marks a chapter as PUBLISHED.
+    Triggers automatic stitching if Intro/Outro are configured.
+    """
+    chapter = await db.get(Chapter, chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    # Check if stitching is needed
+    config = await db.scalar(select(Configuration).limit(1))
+    has_assets = config and (config.intro_video_url or config.outro_video_url)
+    
+    if has_assets:
+        chapter.status = "PROCESSING" # Use PROCESSING to show spinner in UI
+        await db.commit()
+        
+        # We need to pass a session factory or handle session inside background task
+        # app.db.session.AsyncSessionLocal is what we need
+        from app.db.session import AsyncSessionLocal
+        background_tasks.add_task(background_stitch_and_publish, chapter_id, AsyncSessionLocal)
+        
+        return {"message": "Publishing process started (Stitching)", "status": "PROCESSING"}
+    else:
+        # Instant publish if no intro/outro
+        chapter.status = "COMPLETED"
+        await db.commit()
+        return {"message": "Chapter published", "status": "COMPLETED"}
 
 class ChapterResponse(BaseModel):
     id: int
@@ -21,15 +135,72 @@ class ChapterResponse(BaseModel):
     module_name: str | None = None
     # Content body (JSON or String)
     content: dict | list | str | None = None
+    
+    # Viewer Metadata
+    audience: str | None = None
+    functionality: str | None = None
+    is_favorite: bool = False
 
     class Config:
         from_attributes = True
 
 from app.services.storage import storage
 
+from app.models import Chapter, Collection, Module, System, Favorite
+from pydantic import BaseModel
+from typing import Optional
+
+# ... (Previous imports)
+
+@router.post("/chapters/{chapter_id}/favorite")
+async def toggle_favorite(
+    chapter_id: int,
+    user_id: int = 1, # Default to ID 1 for MVP (Admin)
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Toggles the favorite status for a chapter.
+    """
+    try:
+        # Check if exists
+        stmt = select(Favorite).where(
+            Favorite.user_id == user_id, 
+            Favorite.chapter_id == chapter_id
+        )
+        result = await db.execute(stmt)
+        fav = result.scalar_one_or_none()
+        
+        if fav:
+            await db.delete(fav)
+            is_fav = False
+        else:
+            fav = Favorite(user_id=user_id, chapter_id=chapter_id)
+            db.add(fav)
+            is_fav = True
+            
+        await db.commit()
+        return {"ok": True, "is_favorite": is_fav}
+    except Exception as e:
+        print(f"ERROR toggling favorite: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/chapters", response_model=list[ChapterResponse])
-async def list_chapters(db: AsyncSession = Depends(get_db)):
-    """Lista todos os capítulos (vídeos) com contexto de Sistema/Módulo."""
+async def list_chapters(
+    audience: Optional[str] = None,
+    functionality: Optional[str] = None,
+    only_favorites: bool = False,
+    published_only: bool = False,
+    user_id: int = 1, # Context user
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Lista capítulos com filtros opcionais.
+    published_only=True retorna apenas COMPLETED.
+    """
+    
+    # Base query
     stmt = (
         select(Chapter)
         .options(
@@ -37,9 +208,35 @@ async def list_chapters(db: AsyncSession = Depends(get_db)):
         )
         .order_by(Chapter.created_at.desc())
     )
+    
+    # Filters
+    if published_only:
+        stmt = stmt.where(Chapter.status == "COMPLETED")
+
+    if audience:
+        # Simple flexible search
+        stmt = stmt.where(Chapter.audience.ilike(f"%{audience}%"))
+        
+    if functionality:
+        stmt = stmt.where(Chapter.functionality.ilike(f"%{functionality}%"))
+        
+    if only_favorites:
+        stmt = stmt.join(Favorite, Chapter.id == Favorite.chapter_id).where(Favorite.user_id == user_id)
+        
     result = await db.execute(stmt)
     chapters = result.scalars().all()
     
+    # Check favorites for response flags? (Optional, if UI needs to show HEART filled)
+    # For efficiency we could join, but N+1 query for MVP list is acceptable or separate set.
+    # Let's verify favorites for the current list to set a flag in response?
+    # ChapterResponse doesn't have 'is_favorite' field yet. 
+    # I should add it to ChapterResponse.
+    
+    # Get user favorites IDs
+    fav_stmt = select(Favorite.chapter_id).where(Favorite.user_id == user_id)
+    fav_res = await db.execute(fav_stmt)
+    fav_ids = set(fav_res.scalars().all())
+
     # Transformar para o DTO achatado
     response = []
     for chap in chapters:
@@ -50,8 +247,18 @@ async def list_chapters(db: AsyncSession = Depends(get_db)):
             if chap.collection.module.system:
                 sys_name = chap.collection.module.system.name
         
-        # Gera URL assinada (Pre-signed) para acesso seguro
-        full_video_url = storage.get_presigned_url(chap.video_url)
+        # Gera URL assinada (Prefer use stitched if available for Viewer?)
+        # Logic: If stitched exists and status COMPLETED, prefer it?
+        # User request: "editar vídeo... visualizar vídeos publicados"
+        # Since this is list_chapters (used by Admin too), maybe keep raw `video_url`.
+        # But for "Viewer" we want final.
+        # Let's prioritize stitched_video_url if status is COMPLETED.
+        
+        final_url = chap.video_url
+        if chap.status == "COMPLETED" and chap.stitched_video_url:
+             final_url = chap.stitched_video_url
+             
+        full_video_url = storage.get_presigned_url(final_url)
         
         response.append(ChapterResponse(
             id=chap.id,
@@ -60,7 +267,10 @@ async def list_chapters(db: AsyncSession = Depends(get_db)):
             status=chap.status,
             created_at=chap.created_at,
             system_name=sys_name,
-            module_name=mod_name
+            module_name=mod_name,
+            audience=getattr(chap, 'audience', None),           # Add to Response Model
+            functionality=getattr(chap, 'functionality', None), # Add to Response Model
+            is_favorite=(chap.id in fav_ids)                    # Add to Response Model
         ))
         
     return response

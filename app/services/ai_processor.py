@@ -9,8 +9,8 @@ import time
 class AIProcessor:
     def __init__(self):
         genai.configure(api_key=settings.GOOGLE_API_KEY)
-        # Usando 'gemini-2.5-pro' (Disponível em Dez/2025)
-        self.model = genai.GenerativeModel('gemini-2.5-pro')
+        # Usando 'gemini-2.0-flash' (Mais rápido e com cotas melhores)
+        self.model = genai.GenerativeModel('gemini-2.0-flash')
 
     async def analyze_video(self, video_path_minio: str, system_context: str = "", module_context: str = "", user_goal: str = "") -> dict:
         """

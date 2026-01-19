@@ -43,7 +43,7 @@ export function EditorPage() {
     }, [id]);
 
     useEffect(() => {
-        if (content) {
+        if (content && content.steps) {
             audioRefs.current = audioRefs.current.slice(0, content.steps.length);
         }
     }, [content]);
@@ -53,6 +53,18 @@ export function EditorPage() {
             // @ts-ignore
             const data = await api.chapters.get(Number(id));
             setChapter(data);
+
+            // POLLING LOGIC
+            // POLLING LOGIC
+            if (data.status === 'PENDING') {
+                // Optimize: Only update state if not already in pending state (empty steps)
+                // This prevents the video/page from "reloading" or flickering every 3 seconds
+                if (!content || (content.steps && content.steps.length > 0)) {
+                    setContent({ title: data.title, steps: [] });
+                }
+                setTimeout(fetchChapter, 3000); // Retry in 3s
+                return;
+            }
 
             if (data.content) {
                 if (typeof data.content === 'string') {
@@ -69,7 +81,7 @@ export function EditorPage() {
             }
         } catch (error) {
             console.error(error);
-            alert("Erro ao carregar capitulo.");
+            // Don't alert on poll error to avoid spam, maybe just log
         } finally {
             setLoading(false);
         }
@@ -240,7 +252,7 @@ export function EditorPage() {
                         leftSection={<IconEye size={18} />}
                         onClick={() => navigate(`/player/${id}`)}
                     >
-                        Preview
+                        Visualizar
                     </Button>
                     <Button leftSection={<IconDeviceFloppy size={16} />} onClick={handleSave} loading={saving}>
                         Salvar
@@ -268,10 +280,83 @@ export function EditorPage() {
                 <Group justify="space-between" mb={4}>
                     <Text size="xs" c="dimmed">Timeline Studio (Clique Duplo no bloco azul para editar)</Text>
                 </Group>
+
+
+
+                {/* Processing State Display */}
+                {chapter.status === 'PENDING' && (
+                    <div className="bg-blue-900/20 border border-blue-500/50 p-6 rounded mb-4 animate-pulse">
+                        <Stack align="center" gap="md">
+                            <Loader color="blue" type="bars" />
+                            <div className="text-center">
+                                <Text c="blue" fw={700} size="lg">Processando IA...</Text>
+                                <Text c="dimmed" size="sm">A inteligência artificial está analisando o vídeo e criando o passo-a-passo.</Text>
+                                <Text c="dimmed" size="xs">Isso pode levar alguns segundos.</Text>
+                            </div>
+                            <Button
+                                color="red"
+                                variant="subtle"
+                                size="xs"
+                                onClick={async () => {
+                                    if (confirm("Deseja cancelar o processamento atual?")) {
+                                        try {
+                                            // @ts-ignore
+                                            await api.chapters.cancel(chapter.id);
+                                            setChapter({ ...chapter, status: 'FAILED', content: '{"error": "Cancelado"}' });
+                                        } catch (e) {
+                                            alert("Erro ao cancelar.");
+                                        }
+                                    }
+                                }}
+                            >
+                                Cancelar / Parar
+                            </Button>
+                        </Stack>
+                    </div>
+                )}
+
+                {/* Error State Display */}
+                {/* @ts-ignore */}
+                {content.error && chapter.status === 'FAILED' && (
+                    <div className="bg-red-900/20 border border-red-500/50 p-4 rounded mb-4">
+                        <Stack gap="xs">
+                            <Group>
+                                <Text c="red" fw={700}>Erro no Processamento:</Text>
+                                {/* @ts-ignore */}
+                                <Text c="red" size="sm">{content.details || content.error}</Text>
+                            </Group>
+                            <Group>
+                                <Button
+                                    size="xs"
+                                    color="teal"
+                                    variant="filled"
+                                    leftSection={<IconRefresh size={14} />}
+                                    onClick={async () => {
+                                        if (!chapter) return;
+                                        setChapter({ ...chapter, status: 'PENDING' }); // Optimistic update
+
+                                        try {
+                                            // @ts-ignore
+                                            await api.chapters.reprocess(chapter.id);
+                                            // Polling will handle the rest
+                                        } catch (e) {
+                                            alert("Erro ao reiniciar processamento.");
+                                            setChapter({ ...chapter, status: 'FAILED' }); // Revert on error
+                                        }
+                                    }}
+                                >
+                                    Tentar Novamente (Reprocessar IA)
+                                </Button>
+                                <Text size="xs" c="dimmed">Verifique sua Chave de API se o erro persistir.</Text>
+                            </Group>
+                        </Stack>
+                    </div>
+                )}
+
                 <Timeline
                     totalDuration={videoDuration || 60}
                     currentTime={currentTime}
-                    steps={content.steps.map((s, i) => ({
+                    steps={(content.steps || []).map((s, i) => ({
                         id: i,
                         startTime: parseTimestamp(s.timestamp),
                         duration: s.duration || 5,

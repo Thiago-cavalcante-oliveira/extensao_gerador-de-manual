@@ -41,7 +41,10 @@ export const api = {
         delete: (id: number) => request(`/modules/${id}`, { method: 'DELETE' }),
     },
     chapters: {
-        list: () => request<Chapter[]>('/chapters'),
+        list: (params?: { audience?: string; functionality?: string; only_favorites?: boolean; published_only?: boolean }) => {
+            const qs = new URLSearchParams(params as any).toString();
+            return request<Chapter[]>(`/chapters?${qs}`);
+        },
         get: (id: number) => request<Chapter>(`/chapters/${id}`),
         delete: (id: number) => request(`/chapters/${id}`, { method: 'DELETE' }),
         regenerateAudio: (id: number, stepIndex: number, text: string) =>
@@ -54,5 +57,30 @@ export const api = {
                 method: 'PUT',
                 body: JSON.stringify(data)
             }),
+        reprocess: (id: number) => request<{ message: string; status: string }>(`/chapters/${id}/reprocess`, { method: 'POST' }),
+        cancel: (id: number) => request<{ message: string; status: string }>(`/chapters/${id}/cancel`, { method: 'POST' }),
+        publish: (id: number) => request<{ message: string; status: string }>(`/chapters/${id}/publish`, { method: 'POST' }),
+        toggleFavorite: (id: number) => request<{ ok: boolean; is_favorite: boolean }>(`/chapters/${id}/favorite`, { method: 'POST' }),
+    },
+    observability: {
+        stats: () => request<any>('/observability/analytics/stats'),
+        auditLogs: () => request<any[]>('/observability/audit-logs'),
+    },
+    // Generic handlers for legacy/direct usage
+    get: async <T>(url: string) => ({ data: await request<T>(url) }),
+    post: async <T>(url: string, data: any) => ({ data: await request<T>(url, { method: 'POST', body: JSON.stringify(data) }) }),
+    put: async <T>(url: string, data: any) => ({ data: await request<T>(url, { method: 'PUT', body: JSON.stringify(data) }) }),
+    delete: async <T>(url: string) => ({ data: await request<T>(url, { method: 'DELETE' }) }),
+    configuration: {
+        get: () => request<any>('/configuration'),
+        update: (data: any) => request<any>('/configuration', { method: 'PUT', body: JSON.stringify(data) }),
+        uploadAsset: (type: 'intro' | 'outro' | 'logo', file: File) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            return fetch(`${API_BASE}/configuration/assets/${type}`, {
+                method: 'POST',
+                body: formData,
+            }).then(r => r.json());
+        }
     }
 };

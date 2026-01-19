@@ -39,7 +39,8 @@
             "resources": [
                 "assets/*",
                 "index.css",
-                "*.js"
+                "*.js",
+                "logo_foz_iguacu.png"
             ],
             "matches": [
                 "<all_urls>"

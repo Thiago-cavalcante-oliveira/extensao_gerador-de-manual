@@ -17,7 +17,7 @@ export interface Chapter {
     id: number;
     title: string;
     video_url: string;
-    status: 'PENDING' | 'PROCESSING' | 'DRAFT' | 'PUBLISHED';
+    status: 'PENDING' | 'PROCESSING' | 'DRAFT' | 'PUBLISHED' | 'COMPLETED' | 'FAILED';
     created_at: string;
     system_name?: string;
     module_name?: string;

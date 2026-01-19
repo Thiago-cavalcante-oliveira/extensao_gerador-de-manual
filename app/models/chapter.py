@@ -19,11 +19,16 @@ class Chapter(Base):
     
     # URL do vídeo no MinIO (Bucket 'raw-videos')
     video_url: Mapped[str] = mapped_column(String(500))
+    stitched_video_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     
     # Texto gerado pela IA (e editado pelo humano)
     text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     
-    # Status do processamento: PENDING, DRAFT, PUBLISHED
+    # Metadata para Filtros
+    audience: Mapped[str | None] = mapped_column(String(200), nullable=True) # Ex: "Analistas, Gerentes"
+    functionality: Mapped[str | None] = mapped_column(String(100), nullable=True) # Ex: "Cadastro de Usuário"
+
+    # Status do processamento: PENDING, DRAFT, PUBLISHED, STITCHING, STITCHED
     status: Mapped[str] = mapped_column(String(20), default="PENDING")
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

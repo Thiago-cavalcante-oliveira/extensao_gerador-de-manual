@@ -56,6 +56,23 @@ function mountWidget(payload: any) {
     container.id = 'fozdocs-widget-root';
     document.body.appendChild(container);
 
+    // Apply Config Variables to Container (which inherits to Shadow DOM if we use variables? No, Shadow DOM styles are isolated unless variables are defined on :root or host)
+    // Actually, variables defined on 'container' (host) leak into Shadow DOM? Yes.
+    if (payload.appConfig) {
+        const { blur_intensity, mask_style } = payload.appConfig;
+
+        container.style.setProperty('--foz-blur-intensity', (blur_intensity || 6) + 'px');
+
+        if (mask_style === 'solid') {
+            container.style.setProperty('--foz-mask-bg-color', 'black');
+            container.style.setProperty('--foz-mask-image', 'none');
+        } else if (mask_style === 'dots') {
+            // Default is dots, but ensure
+            container.style.setProperty('--foz-mask-bg-color', '#f1f5f9');
+            // Image is complex, leave default from CSS if matched
+        }
+    }
+
     // Use Shadow DOM to isolate styles
     const shadow = container.attachShadow({ mode: 'open' });
 
@@ -71,6 +88,8 @@ function mountWidget(payload: any) {
             <RecordingWidget
                 chapterName={payload.chapterName}
                 systemModule="FozDocs" // Customize based on payload
+                initialPrivacyMode={payload.privacyMode}
+                appConfig={payload.appConfig}
                 onStop={() => {
                     chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
                     root.unmount();

@@ -1,9 +1,37 @@
 import asyncio
+import logging
+import os
 from app.services.ai_processor import ai_processor
 from app.db.session import AsyncSessionLocal
 from app.models import Chapter, Module, System, Collection
 from sqlalchemy import select
 from app.services.tts import tts_service
+
+# Configure logging
+log_dir = "logs"
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+# Configure logging
+log_dir = "logs"
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+# Create a custom logger
+logger = logging.getLogger("app.services.worker")
+logger.setLevel(logging.INFO)
+
+# Create handlers
+f_handler = logging.FileHandler(os.path.join(log_dir, 'worker.log'))
+f_handler.setLevel(logging.INFO)
+
+# Create formatters and add it to handlers
+f_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+f_handler.setFormatter(f_format)
+
+# Add handlers to the logger
+if not logger.handlers:
+    logger.addHandler(f_handler)
 
 async def process_video_job(chapter_id: int, user_goal: str):
     """
@@ -29,7 +57,7 @@ async def process_video_job(chapter_id: int, user_goal: str):
             chapter = result.scalar_one_or_none()
             
             if not chapter:
-                print(f"[Worker] Chapter {chapter_id} não encontrado.")
+                logger.warning(f"Chapter {chapter_id} não encontrado.")
                 return
             
             # Recupera Contextos da Hierarquia
@@ -44,7 +72,7 @@ async def process_video_job(chapter_id: int, user_goal: str):
                     sys = mod.system
                     system_context_str = sys.context_prompt or f"System Name: {sys.name}"
             
-            print(f"[Worker] Processando vídeo: {chapter.video_url}")
+            logger.info(f"Processando vídeo: {chapter.video_url}")
             
             # 2. Chama IA
             result = await ai_processor.analyze_video(
@@ -54,11 +82,11 @@ async def process_video_job(chapter_id: int, user_goal: str):
                 user_goal=user_goal
             )
             
-            print(f"[Worker] IA finalizou. Título: {result.get('title')}")
+            logger.info(f"IA finalizou. Título: {result.get('title')}")
 
             # 3. Gera Áudio (TTS)
             if "steps" in result:
-                print(f"[Worker] Gerando áudio para {len(result['steps'])} passos...")
+                logger.info(f"Gerando áudio para {len(result['steps'])} passos...")
                 for step in result["steps"]:
                     description = step.get("description", "")
                     if description:
@@ -72,7 +100,18 @@ async def process_video_job(chapter_id: int, user_goal: str):
             chapter.status = "DRAFT" # Pronto para workbench
             
             await db.commit()
-            print(f"[Worker] Job {chapter_id} concluído com sucesso!")
+            logger.info(f"Job {chapter_id} concluído com sucesso!")
 
         except Exception as e:
-            print(f"[Worker] Erro fatal no job {chapter_id}: {e}")
+            logger.error(f"Erro fatal no job {chapter_id}: {e}", exc_info=True)
+            try:
+                # Persist error state so we can debug via DB/Frontend
+                import json
+                chapter.status = "FAILED"
+                chapter.text_content = json.dumps({
+                    "error": "Processing Failed",
+                    "details": str(e)
+                }, ensure_ascii=False)
+                await db.commit()
+            except Exception as db_err:
+                print(f"[Worker] Falha ao salvar estado de erro no DB: {db_err}")

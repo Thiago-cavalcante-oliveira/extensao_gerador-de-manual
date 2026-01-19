@@ -6,3 +6,5 @@ from .system import System
 from .module import Module
 from .observability import ProcessingJob, AuditLog, Feedback
 from .user import User, UserRole
+from .configuration import Configuration
+from .favorites import Favorite

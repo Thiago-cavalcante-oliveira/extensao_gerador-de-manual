@@ -4,7 +4,31 @@
 
 /* Custom class for Privacy Blur */
 .fozdocs-blur {
-  filter: blur(4px);
+  filter: blur(var(--foz-blur-intensity, 6px));
   user-select: none;
-  pointer-events: none;
+  cursor: pointer;
+  /* Allow clicking to remove */
+}
+
+/* Custom class for Privacy Mask (Redacted - Dot Style) */
+.fozdocs-mask {
+  color: transparent !important;
+  -webkit-text-security: disc;
+  /* Default to dots, but can be overridden by variable or js */
+  background-color: var(--foz-mask-bg-color, #f1f5f9);
+  background-image: var(--foz-mask-image, radial-gradient(circle, #0f172a 2.5px, transparent 3px));
+  background-size: var(--foz-mask-size, 12px 12px);
+  background-position: center;
+  border-radius: 4px;
+  user-select: none;
+  cursor: pointer;
+  /* Allow clicking to remove */
+  display: inline-block;
+  /* Helps with text flow */
+}
+
+/* Solid Mask Variant (Optional helper) */
+.fozdocs-mask.solid {
+  background-image: none;
+  background-color: black;
 }

@@ -67,6 +67,15 @@ export class PrivacyEngine {
 
             // Visual feedback
             target.style.outline = target.type === 'password' ? '2px solid blue' : 'none';
+        } else {
+            // Generic Masking for non-inputs (Text Redaction)
+            if (target.classList.contains('fozdocs-mask')) {
+                target.classList.remove('fozdocs-mask');
+                this.blurredElements.delete(target);
+            } else {
+                target.classList.add('fozdocs-mask');
+                this.blurredElements.add(target);
+            }
         }
     }
 
@@ -111,13 +120,30 @@ export class PrivacyEngine {
 
     private enable() {
         document.body.classList.add('fozdocs-privacy-active');
-        // Add cursor style?
     }
 
     private disable() {
         document.body.classList.remove('fozdocs-privacy-active');
-        // Cleanup all effects? Or keep them?
-        // Usually we keep them until session ends. 
-        // But if user disables privacy mode, maybe we stop adding NEW ones.
+        // Não limpamos automaticamente aqui para permitir persistência se apenas desabilitar a engine,
+        // mas para o caso de STOP/CANCEL, chamaremos cleanup().
+    }
+
+    public cleanup() {
+        // Remove classes from all tracked elements
+        this.blurredElements.forEach(el => {
+            el.classList.remove('fozdocs-blur');
+            el.classList.remove('fozdocs-mask');
+        });
+        this.blurredElements.clear();
+
+        // Restore input types
+        this.originalTypes.forEach((type, input) => {
+            input.type = type;
+            input.style.outline = 'none';
+        });
+        this.originalTypes.clear();
+
+        this.disable();
+        console.log("[PrivacyEngine] Cleanup complete. All masks removed.");
     }
 }

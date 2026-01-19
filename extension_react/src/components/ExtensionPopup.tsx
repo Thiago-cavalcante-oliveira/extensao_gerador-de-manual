@@ -17,10 +17,27 @@ export default function ExtensionPopup() {
 
     // Dados da API
     const { systems, modules, loading, error } = useSystems();
-    const [selectedSystem, setSelectedSystem] = useState<string>('');
-    const [selectedModule, setSelectedModule] = useState<string>('');
+    const [selectedSystem, setSelectedSystem] = useState<number | ''>('');
+    const [selectedModule, setSelectedModule] = useState<number | ''>('');
     const [chapterName, setChapterName] = useState('');
     const [audience, setAudience] = useState<string[]>([]); // Multi-select array
+
+    // App Config
+    const [appConfig, setAppConfig] = useState<any>(null);
+
+    // Fetch Global Config
+    useEffect(() => {
+        fetch('http://localhost:8000/api/v1/configuration')
+            .then(res => res.json())
+            .then(data => {
+                setAppConfig(data);
+                // Set default privacy
+                if (data.privacy_default_enabled) {
+                    setPrivacyMode(true);
+                }
+            })
+            .catch(err => console.error("Failed to load config", err));
+    }, []);
 
     // Lógica de Contagem Regressiva
     useEffect(() => {
@@ -49,7 +66,8 @@ export default function ExtensionPopup() {
                 privacyMode,
                 activeTool,
                 captureSource,
-                audience
+                audience,
+                appConfig
             }
         });
         window.close();
@@ -60,8 +78,15 @@ export default function ExtensionPopup() {
             alert("Selecione Sistema e Módulo!");
             return;
         }
-        setStatus('countdown');
-        setIsCounting(false);
+
+        // Se Modo Privacidade estiver ATIVO, pula o countdown e inicia o widget em modo de setup
+        if (privacyMode) {
+            handleStartRecording();
+        } else {
+            // Se NÃO tiver privacidade, faz o countdown e depois inicia
+            setStatus('countdown');
+            setIsCounting(false);
+        }
     };
 
     const confirmStartCount = () => {
@@ -85,10 +110,13 @@ export default function ExtensionPopup() {
     };
 
     // Filtra módulos pelo sistema selecionado
-    const filteredModules = systems.length > 0 ? modules.filter((m: any) => m.system_id === selectedSystem) : [];
+    // Ambos (system_id e selectedSystem) agora são number (ou podem ser comparados com ==)
+    const filteredModules = systems.length > 0 && selectedSystem !== ''
+        ? modules.filter((m: any) => m.system_id == selectedSystem)
+        : [];
 
     return (
-        <div className="w-[380px] h-[600px] bg-white relative">
+        <div className="w-[380px] h-[600px] bg-white relative overflow-hidden">
             {status === 'idle' && (
                 <ConfigScreen
                     systems={systems} modules={modules} filteredModules={filteredModules}
@@ -102,6 +130,7 @@ export default function ExtensionPopup() {
                     activeTool={activeTool} setActiveTool={setActiveTool}
                     loading={loading} error={error}
                     onStart={startProcess}
+                    appConfig={appConfig}
                 />
             )}
             {status === 'countdown' && (
